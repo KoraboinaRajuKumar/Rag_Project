@@ -1,81 +1,86 @@
 import uuid
 from pathlib import Path
 from datetime import datetime
-import sys
+from typing import List, Any
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
-from logger.custom_logger import CustomLogger
 from exceptions.custom_exceptions import DocumentPortalException
 from utils.model_loader import ModelLoader
 
 class SingleDocumentIngestion:
-    def __init__(self,data_dir:str="data/single_document_chat",fiass_dir:str="faiss_index"):
+    def __init__(self, data_dir: str = "data/single_document_chat", faiss_dir: str = "faiss_index"):
         try:
-            self.log = CustomLogger().get_logger(__name__)
             self.data_dir = Path(data_dir)
-            self.faiss_dir = Path(fiass_dir)
+            self.faiss_dir = Path(faiss_dir)
             self.data_dir.mkdir(parents=True, exist_ok=True)
             self.faiss_dir.mkdir(parents=True, exist_ok=True)
+
             self.loader = ModelLoader()
-            #self.embedding_model = self.loader.load_embeddings()
-            self.log.info(f"SingleDocumentIngestion initialized. data_dir={self.data_dir}, faiss_dir={self.faiss_dir}")
+            self.embedding_model = self.loader.load_embeddings()
+
+            print(f"[INFO] SingleDocumentIngestion initialized. data_dir={self.data_dir}, faiss_dir={self.faiss_dir}")
         except Exception as e:
-            self.log.error(f"Error initializing SingleDocumentIngestion: {e}")
-            raise DocumentPortalException(f"Error initializing SingleDocumentIngestion: {e}") from e
-        
+            print(f"[ERROR] Error initializing SingleDocumentIngestion: {e}")
+            raise DocumentPortalException(
+                "Error initializing SingleDocumentIngestion",
+                error_details=str(e)
+            ) from e
 
-    def ingest_files(self,uploaded_files):   # Loading the documents
-
+    def ingest_files(self, uploaded_files: List[Any]) -> Any:
+        """
+        uploaded_files: List of file-like objects (must have .name and .read())
+        Returns: Retriever object
+        """
         try:
-            documents=[]
+            documents = []
+
             for uploaded_file in uploaded_files:
-                unique_file_name= f"session_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}_{uploaded_file.name}"
-                temp_path=self.data_dir/unique_file_name
+                # Create a unique filename
+                unique_file_name = f"session_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}_{uploaded_file.name}"
+                temp_path = self.data_dir / unique_file_name
+
+                # Write uploaded file bytes to disk
                 with open(temp_path, "wb") as f:
                     f.write(uploaded_file.read())
-                self.log.info(f"File saved temporarily for ingestion. file={unique_file_name}, path={temp_path}")
-                loader=PyPDFLoader(str(temp_path))
-                docs=loader.load()
+
+                print(f"[INFO] File saved temporarily: {unique_file_name} at {temp_path}")
+
+                # Load PDF document(s)
+                loader = PyPDFLoader(str(temp_path))
+                docs = loader.load()
                 documents.extend(docs)
-            self.log.info(f"Total documents loaded: {len(documents)}") 
-            return self._create_retriver(documents)
+
+            print(f"[INFO] Total documents loaded: {len(documents)}")
+            return self._create_retriever(documents)
+
         except Exception as e:
-            self.log.error(f"Error loading documents: {e}")
-            raise DocumentPortalException(f"Error loading documents: {e}") from e  
-    
-    def _create_retriver(self,documents):
+            print(f"[ERROR] Error loading documents: {e}")
+            raise DocumentPortalException(
+                "Error loading documents",
+                error_details=str(e)
+            ) from e
+
+    def _create_retriever(self, documents: List[Any]) -> Any:
         try:
-           spliter= RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-           chunks=spliter.split_documents(documents)
-           self.log.info(f"Documents split into chunks. Total chunks created: {len(chunks)}")
+            # Split documents into chunks
+            splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+            chunks = splitter.split_documents(documents)
 
-           embedding_model = self.loader.load_embeddings()
-           vector_store=FAISS.from_documents(documents=chunks, embedding=embedding_model)
+            print(f"[INFO] Documents split into chunks. Total chunks created: {len(chunks)}")
 
-           retriver= vector_store.as_retriever(search_type="similarity", search_kwargs={"k":3})
-           self.log.info("Retriever created successfully with top 3 similar documents.",retriever_type=str(type(retriver)))
-           return retriver
+            # Load embeddings again (could also reuse self.embedding_model if preferred)
+            embedding_model = self.loader.load_embeddings()
+            vector_store = FAISS.from_documents(documents=chunks, embedding=embedding_model)
+
+            retriever = vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 3})
+
+            print(f"[INFO] Retriever created successfully with top 3 similar documents. Retriever type: {type(retriever)}")
+            return retriever
+
         except Exception as e:
-            self.log.error(f"Error creating retriever: {e}")
-            raise DocumentPortalException(f"Error creating retriever: {e}") from e
-
-
-           
-
-
-
-
-
-
-                    
-
-
-            
-        
-    
-
-
-
-
-
+            print(f"[ERROR] Error creating retriever: {e}")
+            raise DocumentPortalException(
+                "Error creating retriever",
+                error_details=str(e)
+            ) from e
